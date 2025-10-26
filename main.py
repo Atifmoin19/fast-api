@@ -50,7 +50,9 @@ def list_books(db: Session = Depends(get_db)):
         response.append(schemas.BookResponse(
             id=book.id,
             title=book.title,
-            author_name=author.author_name if author else "Unknown"
+            author_name=author.author_name if author else "Unknown",
+            published_year=book.published_year or 0,
+            genre=book.genre or "Unknown"
         ))
     return response
 
