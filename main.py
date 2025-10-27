@@ -10,21 +10,33 @@ import uvicorn
 import models, database, schemas
 from telegram import Update
 from telegram.ext import (
+    Application,
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     ContextTypes,
     filters,
 )
-
 from dotenv import load_dotenv
+
+# =====================================================
+# ENVIRONMENT & DATABASE
+# =====================================================
 load_dotenv()
-# =====================================================
-# DATABASE INIT
-# =====================================================
 models.Base.metadata.create_all(bind=database.engine)
 app = FastAPI(title="BooksNameFAPI")
 
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or "8468933584:AAG1XFuEF3qTq7_wYnppnP5ETHAN_bB5wRY"
+
+if not TELEGRAM_TOKEN:
+    raise ValueError("❌ TELEGRAM_TOKEN not found!")
+
+BOT_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+WEBHOOK_URL = (
+    f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook"
+    if os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+    else "http://localhost:8000/webhook"
+)
 
 # =====================================================
 # DEPENDENCY
@@ -36,24 +48,6 @@ def get_db():
     finally:
         db.close()
 
-
-# =====================================================
-# TELEGRAM CONFIG
-# =====================================================
-TELEGRAM_TOKEN = "8468933584:AAG1XFuEF3qTq7_wYnppnP5ETHAN_bB5wRY"
-if not TELEGRAM_TOKEN:
-    raise ValueError("❌ TELEGRAM_TOKEN not found!")
-
-BOT_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-
-# Auto-switch between Render & local
-WEBHOOK_URL = (
-    f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/webhook"
-    if os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-    else "http://localhost:8000/webhook"
-)
-
-
 # =====================================================
 # TELEGRAM HANDLERS
 # =====================================================
@@ -62,8 +56,69 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    await update.message.reply_text(f"You said: {text}")
+    await update.message.reply_text(f"You said: {update.message.text}")
+
+
+# =====================================================
+# TELEGRAM INITIALIZATION
+# =====================================================
+telegram_app: Application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
+
+@app.on_event("startup")
+async def on_startup():
+    print("🚀 Starting FastAPI app...")
+
+    async with httpx.AsyncClient() as client:
+        # Always delete existing webhook to avoid conflicts
+        await client.post(f"{BOT_URL}/deleteWebhook")
+
+    if "RENDER" in os.environ:
+        print("🌐 Running on Render — using Webhook mode")
+
+        # Initialize and start Telegram bot
+        await telegram_app.initialize()
+        await telegram_app.start()
+
+        # Set webhook
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{BOT_URL}/setWebhook", json={"url": WEBHOOK_URL}
+            )
+            print("📡 Webhook set:", response.json())
+
+    else:
+        print("💬 Running locally — using Polling mode")
+
+        await telegram_app.initialize()
+        await telegram_app.start()
+        asyncio.create_task(telegram_app.run_polling(stop_signals=None))
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    print("🛑 Shutting down bot...")
+    await telegram_app.stop()
+    await telegram_app.shutdown()
+
+
+# =====================================================
+# TELEGRAM WEBHOOK ENDPOINT
+# =====================================================
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    update = Update.de_json(data, telegram_app.bot)
+
+    # Ensure the application is initialized
+    if not telegram_app.running:
+        await telegram_app.initialize()
+        await telegram_app.start()
+
+    await telegram_app.process_update(update)
+    return {"ok": True}
 
 
 # =====================================================
@@ -76,17 +131,6 @@ async def send_message(chat_id: int, text: str):
             f"{BOT_URL}/sendMessage", json={"chat_id": chat_id, "text": text}
         )
     return response.json()
-
-
-# =====================================================
-# TELEGRAM WEBHOOK ENDPOINT
-# =====================================================
-@app.post("/webhook")
-async def telegram_webhook(request: Request):
-    data = await request.json()
-    update = Update.de_json(data, app.bot.bot)
-    await app.bot.process_update(update)
-    return {"ok": True}
 
 
 # =====================================================
@@ -127,29 +171,18 @@ def create_book(book: schemas.BookCreate, db: Session = Depends(get_db)):
 @app.get("/books/", response_model=list[schemas.BookResponse])
 def list_books(db: Session = Depends(get_db)):
     books = db.query(models.Book).all()
-    response = []
-    for book in books:
-        author = db.query(models.Author).filter_by(id=book.author_id).first()
-        response.append(
-            schemas.BookResponse(
-                id=book.id,
-                title=book.title,
-                author_name=author.author_name if author else "Unknown",
-                published_year=book.published_year or 0,
-                genre=book.genre or "Unknown",
-            )
+    return [
+        schemas.BookResponse(
+            id=b.id,
+            title=b.title,
+            author_name=db.query(models.Author).get(b.author_id).author_name
+            if db.query(models.Author).get(b.author_id)
+            else "Unknown",
+            published_year=b.published_year or 0,
+            genre=b.genre or "Unknown",
         )
-    return response
-
-
-@app.delete("/delete-books")
-def delete_book(book: schemas.BookResponse, db: Session = Depends(get_db)):
-    new_book = db.query(models.Book).filter(models.Book.id == book.id).first()
-    if not new_book:
-        return {"error": "No record found for this book"}
-    db.delete(new_book)
-    db.commit()
-    return {"message": "Deleted Record", "data": new_book}
+        for b in books
+    ]
 
 
 @app.delete("/delete-all")
@@ -164,12 +197,6 @@ def delete_all_books(db: Session = Depends(get_db)):
 # =====================================================
 # USERS CRUD
 # =====================================================
-@app.get("/authors/", response_model=list[schemas.AuthorResponse])
-def list_authors(db: Session = Depends(get_db)):
-    authors = db.query(models.Author).all()
-    return [schemas.AuthorResponse(id=a.id, author_name=a.author_name) for a in authors]
-
-
 @app.get("/user-list", response_model=list[schemas.AddUserResponse])
 def get_user_list(db: Session = Depends(get_db)):
     userlist = db.query(models.UserList).all()
@@ -198,25 +225,8 @@ def create_user(user: schemas.AddUserRequest, db: Session = Depends(get_db)):
 
 
 @app.delete("/delete-all-user")
-def delete_all_users(user: Optional[schemas.AddUserRequest] = None, db: Session = Depends(get_db)):
-    if not user:
-        deleted_count = db.query(models.UserList).delete()
-        sql = text("""
-            SELECT setval(
-                pg_get_serial_sequence('userList', 'id'),
-                COALESCE((SELECT MAX(id) FROM userList), 0) + 1,
-                false
-            );
-        """)
-        db.execute(sql)
-        db.commit()
-        return {"message": f"Deleted all users ({deleted_count} records)."}
-
-    existing_user = db.query(models.UserList).filter(models.UserList.user_id == user.user_id).first()
-    if not existing_user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    db.delete(existing_user)
+def delete_all_users(db: Session = Depends(get_db)):
+    deleted_count = db.query(models.UserList).delete()
     db.execute(text("""
         SELECT setval(
             pg_get_serial_sequence('userList', 'id'),
@@ -225,49 +235,8 @@ def delete_all_users(user: Optional[schemas.AddUserRequest] = None, db: Session 
         );
     """))
     db.commit()
-    return {"message": "Deleted Record"}
+    return {"message": f"Deleted all users ({deleted_count} records)."}
 
-
-# =====================================================
-# STARTUP / SHUTDOWN
-# =====================================================
-@app.on_event("startup")
-async def startup_event():
-    print("🤖 Starting Telegram bot...")
-    app.bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.bot.add_handler(CommandHandler("start", start))
-    app.bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-
-    async with httpx.AsyncClient() as client:
-        # Always delete existing webhook first (avoids conflict)
-        await client.post(f"{BOT_URL}/deleteWebhook")
-
-    if "RENDER" in os.environ:
-        # Running in Render
-        print("🌐 Running on Render (Webhook mode)")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{BOT_URL}/setWebhook",
-                json={"url": WEBHOOK_URL}
-            )
-            print("📡 Webhook set response:", response.json())
-    else:
-        # Running locally
-        print("💬 Running locally in polling mode...")
-        await app.bot.initialize()
-        await app.bot.start()
-        await app.bot.updater.initialize()
-        asyncio.create_task(app.bot.updater.start_polling())
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    print("🛑 Shutting down bot...")
-    if hasattr(app, "bot"):
-        await app.bot.updater.stop()
-        await app.bot.updater.shutdown()
-        await app.bot.stop()
-        await app.bot.shutdown()
 
 # =====================================================
 # MAIN ENTRY
