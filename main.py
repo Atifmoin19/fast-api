@@ -11,11 +11,15 @@ import models, database, schemas
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# ===================== DATABASE INIT =====================
+# =====================================================
+# DATABASE INIT
+# =====================================================
 models.Base.metadata.create_all(bind=database.engine)
-app = FastAPI()
+app = FastAPI(title="BooksNameFAPI")
 
-# Dependency to get DB session
+# =====================================================
+# DEPENDENCY
+# =====================================================
 def get_db():
     db = database.SessionLocal()
     try:
@@ -23,13 +27,20 @@ def get_db():
     finally:
         db.close()
 
-# ===================== TELEGRAM SETUP =====================
+
+# =====================================================
+# TELEGRAM CONFIG
+# =====================================================
 TELEGRAM_TOKEN = "8468933584:AAG1XFuEF3qTq7_wYnppnP5ETHAN_bB5wRY"
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-# --- Handlers ---
+
+# =====================================================
+# TELEGRAM HANDLERS
+# =====================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Hello! This is your FastAPI local bot.")
+    await update.message.reply_text("👋 Hello! This is your FastAPI bot, ready to go!")
+
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat.id
@@ -37,7 +48,10 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"📩 Received from {chat_id}: {text}")
     await update.message.reply_text(f"You said: {text}")
 
-# --- Send Message API ---
+
+# =====================================================
+# TELEGRAM SEND MESSAGE ENDPOINT
+# =====================================================
 @app.post("/send_message/")
 async def send_message(chat_id: int, text: str):
     """Send Telegram message manually from API"""
@@ -48,7 +62,10 @@ async def send_message(chat_id: int, text: str):
         )
     return response.json()
 
-# --- Optional Webhook endpoint (not needed for local polling) ---
+
+# =====================================================
+# TELEGRAM WEBHOOK (optional)
+# =====================================================
 @app.post("/webhook/")
 async def telegram_webhook(request: Request):
     data = await request.json()
@@ -56,6 +73,7 @@ async def telegram_webhook(request: Request):
     chat_id = data["message"]["chat"]["id"]
     text = data["message"].get("text", "")
     reply_text = f"You said: {text}"
+
     async with httpx.AsyncClient() as client:
         await client.post(
             f"{BASE_URL}/sendMessage",
@@ -63,7 +81,10 @@ async def telegram_webhook(request: Request):
         )
     return {"ok": True}
 
-# ===================== BOOKS =====================
+
+# =====================================================
+# BOOKS CRUD
+# =====================================================
 @app.post("/books/", response_model=schemas.BookResponse)
 def create_book(book: schemas.BookCreate, db: Session = Depends(get_db)):
     author = db.query(models.Author).filter_by(author_name=book.author_name).first()
@@ -95,6 +116,7 @@ def create_book(book: schemas.BookCreate, db: Session = Depends(get_db)):
         genre=new_book.genre
     )
 
+
 @app.get("/books/", response_model=list[schemas.BookResponse])
 def list_books(db: Session = Depends(get_db)):
     books = db.query(models.Book).all()
@@ -110,6 +132,7 @@ def list_books(db: Session = Depends(get_db)):
         ))
     return response
 
+
 @app.delete("/delete-books")
 def delete_book(book: schemas.BookResponse, db: Session = Depends(get_db)):
     new_book = db.query(models.Book).filter(models.Book.id == book.id).first()
@@ -119,6 +142,7 @@ def delete_book(book: schemas.BookResponse, db: Session = Depends(get_db)):
     db.commit()
     return {"message": 'Deleted Record', "data": new_book}
 
+
 @app.delete("/delete-all")
 def delete_all_books(db: Session = Depends(get_db)):
     db.query(models.Book).delete()
@@ -127,16 +151,26 @@ def delete_all_books(db: Session = Depends(get_db)):
     db.commit()
     return {"message": 'Deleted all records'}
 
-# ===================== USERS =====================
+
+# =====================================================
+# USERS CRUD
+# =====================================================
 @app.get("/authors/", response_model=list[schemas.AuthorResponse])
 def list_authors(db: Session = Depends(get_db)):
     authors = db.query(models.Author).all()
     return [schemas.AuthorResponse(id=a.id, author_name=a.author_name) for a in authors]
 
-@app.get('/user-list', response_model=list[schemas.AddUserResponse])
+
+@app.get("/user-list", response_model=list[schemas.AddUserResponse])
 def get_user_list(db: Session = Depends(get_db)):
     userlist = db.query(models.UserList).all()
-    return [schemas.AddUserResponse(id=a.id, user_id=a.user_id, user_role=a.user_role, username=a.username) for a in userlist]
+    return [schemas.AddUserResponse(
+        id=a.id,
+        user_id=a.user_id,
+        user_role=a.user_role,
+        username=a.username
+    ) for a in userlist]
+
 
 @app.post("/create-user")
 def create_user(user: schemas.AddUserRequest, db: Session = Depends(get_db)):
@@ -149,11 +183,12 @@ def create_user(user: schemas.AddUserRequest, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return {"data": new_user, "message": "User created successfully"}
 
+
 @app.delete("/delete-all-user")
 def delete_all_users(user: Optional[schemas.AddUserRequest] = None, db: Session = Depends(get_db)):
     if not user:
         deleted_count = db.query(models.UserList).delete()
-        sql = text(f"""
+        sql = text("""
             SELECT setval(
                 pg_get_serial_sequence('userList', 'id'),
                 COALESCE((SELECT MAX(id) FROM userList), 0) + 1,
@@ -164,59 +199,67 @@ def delete_all_users(user: Optional[schemas.AddUserRequest] = None, db: Session 
         db.commit()
         return {"message": f"Deleted all users ({deleted_count} records)."}
 
-    existing_user = (
-        db.query(models.UserList)
-        .filter(models.UserList.user_id == user.user_id)
-        .first()
-    )
+    existing_user = db.query(models.UserList).filter(models.UserList.user_id == user.user_id).first()
     if not existing_user:
         raise HTTPException(status_code=404, detail="User not found")
 
     db.delete(existing_user)
-    sql = text(f"""
+    db.execute(text("""
         SELECT setval(
             pg_get_serial_sequence('userList', 'id'),
             COALESCE((SELECT MAX(id) FROM userList), 0) + 1,
             false
         );
-    """)
-    db.execute(sql)
+    """))
     db.commit()
     return {"message": 'Deleted Record'}
 
-# ===================== STARTUP BOT =====================
+
+# =====================================================
+# TELEGRAM BOT STARTUP / SHUTDOWN
+# =====================================================
 @app.on_event("startup")
 async def startup_event():
-    print("🤖 Initializing Telegram bot...")
+    print("🤖 Starting Telegram bot in background (polling)...")
 
     try:
-        app.bot = (
+        bot_app = (
             ApplicationBuilder()
             .token(TELEGRAM_TOKEN)
-            .concurrent_updates(True)  # important for async
+            .concurrent_updates(True)
             .build()
         )
     except InvalidToken:
         print("❌ Invalid Telegram token")
         return
 
-    # Add handlers
-    app.bot.add_handler(CommandHandler("start", start))
-    app.bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+    bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
+    # Keep reference to stop later
+    app.bot_app = bot_app
 
     # ✅ Initialize and start without loop conflict
-    await app.bot.initialize()
-    await app.bot.start()
-    await app.bot.updater.start_polling()
-    print("🤖 Telegram bot polling started successfully ✅")
+    await bot_app.initialize()
+    await bot_app.start()
+
+    # Run polling safely in background
+    asyncio.create_task(bot_app.updater.start_polling())
+    print("✅ Telegram bot polling started successfully.")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     print("🛑 Shutting down Telegram bot...")
-    await app.bot.updater.stop()
-    await app.bot.stop()
-    await app.bot.shutdown()
-    
-# ===================== MAIN =====================
+    if hasattr(app, "bot_app"):
+        await app.bot_app.updater.stop()
+        await app.bot_app.stop()
+        await app.bot_app.shutdown()
+        print("✅ Telegram bot stopped cleanly.")
+
+
+# =====================================================
+# MAIN ENTRY
+# =====================================================
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
