@@ -7,9 +7,10 @@ from fastapi import FastAPI, HTTPException, Depends, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 import uvicorn
+from gemini_chat import get_gemini_reply, parse_meeting_message
+
 
 from gemini_chat import get_gemini_reply
-from gemini_helper import parse_meeting_message
 from google_calendar import create_event, ensure_google_files_exist
 import models, database, schemas
 from telegram import Update
@@ -62,8 +63,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text.strip()
-    reply = get_gemini_reply(user_message)
+    user_text = update.message.text
+    reply = get_gemini_reply(user_text)
     await update.message.reply_text(reply)
 
 async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
