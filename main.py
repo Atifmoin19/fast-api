@@ -33,6 +33,9 @@ app = FastAPI(title="BooksNameFAPI")
 
 ensure_google_files_exist()
 
+
+print("🔍 GEMINI_API_KEY available?",os.getenv("GEMINI_API_KEY"), bool(os.getenv("GEMINI_API_KEY")))
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or "8468933584:AAG1XFuEF3qTq7_wYnppnP5ETHAN_bB5wRY"
 
 if not TELEGRAM_TOKEN:
