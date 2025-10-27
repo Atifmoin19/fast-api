@@ -101,11 +101,50 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Hello! Your FastAPI Telegram bot is live.")
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Smart handler for normal messages and contextual replies."""
     user_text = update.message.text
+    reply_to_msg = update.message.reply_to_message
+    last_meeting = context.user_data.get("last_meeting")
+
+    # --- Case 1: Replying to last meeting message ---
+    if reply_to_msg and last_meeting and reply_to_msg.message_id == last_meeting["message_id"]:
+        user_text_lower = user_text.lower()
+
+        if "cancel" in user_text_lower or "delete" in user_text_lower:
+            try:
+                from google_calendar import get_calendar_service
+                service = get_calendar_service()
+                service.events().delete(calendarId="primary", eventId=last_meeting["event_id"]).execute()
+                await update.message.reply_text(f"🗑️ Meeting '{last_meeting['title']}' cancelled successfully.")
+                context.user_data.pop("last_meeting", None)
+            except Exception as e:
+                await update.message.reply_text(f"⚠️ Could not cancel meeting: {e}")
+            return
+
+        elif "change" in user_text_lower or "reschedule" in user_text_lower:
+            reply = "🔁 I can reschedule meetings soon — for now, please delete and recreate it."
+            await update.message.reply_text(reply)
+            return
+
+        else:
+            # Contextual AI response
+            prompt = f"""
+The user replied to a meeting confirmation message.
+
+Original meeting: "{last_meeting['title']}"
+User said: "{user_text}"
+
+Respond helpfully and concisely, keeping context about meetings.
+"""
+            reply = get_gemini_reply(prompt)
+            await send_smart_message(update, reply)
+            return
+
+    # --- Case 2: Normal message (no reply) ---
     reply = get_gemini_reply(user_text)
     await send_smart_message(update, reply)
-
 async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the /schedule command and create a Google Calendar event."""
     user_input = " ".join(context.args)
     if not user_input:
         await update.message.reply_text(
@@ -122,9 +161,27 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("I couldn’t find a clear date or time. Could you specify them?")
         return
 
+    # Convert parsed date/time to datetime
+    try:
+        start_time = datetime.fromisoformat(f"{date}T{time}:00")
+    except Exception:
+        await update.message.reply_text("⚠️ Invalid date/time format.")
+        return
+
     # Create Google Calendar event
-    event_link = create_event(title, date, time)
-    await update.message.reply_text(f"✅ Meeting scheduled:\n🗓 {title}\n📅 {date} at {time}\n🔗 {event_link}")
+    event = create_event(title, start_time)
+    event_link = event.get("htmlLink", "No link available")
+
+    msg = await update.message.reply_text(
+        f"✅ Meeting scheduled:\n🗓 {title}\n📅 {date} at {time}\n🔗 {event_link}"
+    )
+
+    # Store event metadata for contextual replies
+    context.user_data["last_meeting"] = {
+        "event_id": event.get("id"),
+        "message_id": msg.message_id,
+        "title": title,
+    }
 
 # =====================================================
 # TELEGRAM INITIALIZATION
