@@ -5,10 +5,13 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import os, base64
 from dotenv import load_dotenv
+
 load_dotenv()
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 
-
+# =====================================================
+# AUTH FILE SETUP
+# =====================================================
 def ensure_google_files_exist():
     """
     Decode base64-encoded credentials/token from environment variables
@@ -25,7 +28,9 @@ def ensure_google_files_exist():
         with open("token.json", "w") as f:
             f.write(base64.b64decode(token_b64).decode("utf-8"))
 
-
+# =====================================================
+# AUTH SERVICE
+# =====================================================
 def get_calendar_service():
     """
     Returns an authenticated Google Calendar service.
@@ -54,25 +59,41 @@ def get_calendar_service():
     service = build("calendar", "v3", credentials=creds)
     return service
 
-
-def create_event(summary: str, start_time: datetime):
+# =====================================================
+# CREATE EVENT (3 args)
+# =====================================================
+def create_event(title: str, date: str, time: str):
+    """
+    Create a Google Calendar event using separate date and time strings.
+    Returns the event link.
+    """
     service = get_calendar_service()
-    end_time = start_time + timedelta(hours=1)
+
+    try:
+        # Convert "2025-10-28" + "10:00" → datetime
+        start_dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        # Fallback in case time format differs
+        raise ValueError(f"Invalid date/time format: {date} {time}")
+
+    end_dt = start_dt + timedelta(hours=1)
 
     event = {
-        "summary": summary,
-        "start": {"dateTime": start_time.isoformat(), "timeZone": "Asia/Kolkata"},
-        "end": {"dateTime": end_time.isoformat(), "timeZone": "Asia/Kolkata"},
+        "summary": title,
+        "start": {"dateTime": start_dt.isoformat(), "timeZone": "Asia/Kolkata"},
+        "end": {"dateTime": end_dt.isoformat(), "timeZone": "Asia/Kolkata"},
     }
 
     event_result = service.events().insert(calendarId="primary", body=event).execute()
-    return event_result
+    return event_result.get("htmlLink", "No link returned")
 
-
+# =====================================================
+# LOCAL TEST
+# =====================================================
 if __name__ == "__main__":
     print("🔍 Starting Google Calendar auth flow...")
     service = get_calendar_service()
     print("✅ Authenticated successfully!")
 
-    event = create_event("Test Meeting", datetime.now() + timedelta(minutes=2))
-    print(f"🎉 Created event: {event.get('htmlLink')}")
+    event_link = create_event("Test Meeting", "2025-10-28", "15:00")
+    print(f"🎉 Created event: {event_link}")
