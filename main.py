@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 import uvicorn
 
+from gemini_chat import get_gemini_reply
 from gemini_helper import parse_meeting_message
 from google_calendar import create_event, ensure_google_files_exist
 import models, database, schemas
@@ -61,7 +62,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"You said: {update.message.text}")
+    user_message = update.message.text.strip()
+    reply = get_gemini_reply(user_message)
+    await update.message.reply_text(reply)
 
 async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
 

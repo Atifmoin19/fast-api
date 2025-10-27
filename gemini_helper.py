@@ -1,41 +1,57 @@
-# gemini_helper.py
-import google.generativeai as genai
 import os
-from datetime import datetime, timedelta
-import re
 from dotenv import load_dotenv
+import google.generativeai as genai
+
 load_dotenv()
+
+# Configure Gemini with API key
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel("gemini-1.5-flash")
-
-def parse_meeting_message(message: str):
+def get_available_model(preferred="gemini-1.5-flash", fallback="gemini-pro"):
     """
-    Uses Gemini to interpret human-like text into structured meeting info.
+    Checks which model is supported on current SDK and returns best option.
+    """
+    try:
+        models = [m.name for m in genai.list_models()]
+        if any(preferred in m for m in models):
+            print(f"✅ Using {preferred}")
+            return preferred
+        elif any(fallback in m for m in models):
+            print(f"⚙️ Using fallback model: {fallback}")
+            return fallback
+        else:
+            print("⚠️ No matching Gemini models found, defaulting to gemini-pro")
+            return fallback
+    except Exception as e:
+        print(f"⚠️ Could not fetch model list: {e}")
+        return fallback
+
+# Automatically select model
+MODEL_NAME = get_available_model()
+model = genai.GenerativeModel(MODEL_NAME)
+
+def parse_meeting_message(user_message: str):
+    """
+    Parses natural user input (like '/schedule a meeting tomorrow at 10 about budget')
+    into structured date, time, and topic using Gemini.
     """
     prompt = f"""
-    Extract structured meeting info from this message:
-    "{message}"
+    The user said: "{user_message}"
 
-    Return a JSON with keys:
-    title (string),
-    date (YYYY-MM-DD),
-    time (HH:MM AM/PM),
-    participants (list of names if mentioned),
-    location (if any).
+    Extract a meeting plan in JSON with these keys:
+    - title (short meeting topic)
+    - date (in YYYY-MM-DD)
+    - time (24-hour format, HH:MM)
 
-    If date or time not mentioned, set to null.
+    If date or time is missing, guess from context (e.g. 'tomorrow' or 'next Monday').
+    Only return valid JSON.
     """
 
-    response = model.generate_content(prompt)
-    text = response.text.strip()
-
-    # Try to find a JSON-like structure
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
-        import json
-        try:
-            return json.loads(match.group(0))
-        except Exception:
-            pass
-    return {"title": None, "date": None, "time": None, "participants": [], "location": None}
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        print(f"Gemini response: {text}")
+        return text
+    except Exception as e:
+        print(f"❌ Error while parsing meeting message: {e}")
+        return '{"error": "Could not parse message"}'
