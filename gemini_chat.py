@@ -4,8 +4,14 @@ import re
 import json
 from dotenv import load_dotenv
 from google import genai
+from zoneinfo import ZoneInfo
 
 load_dotenv()
+
+
+
+def get_ist_time():
+    return datetime.now(ZoneInfo("Asia/Kolkata"))
 
 # =====================================================
 # CONFIGURATION
@@ -25,9 +31,11 @@ def get_gemini_reply(prompt: str) -> str:
     Includes real-time context (today's date/time).
     """
     try:
-        now = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
+        now = get_ist_time()
+        today_str = now.strftime("%B %d, %Y")
+        time_str = now.strftime("%I:%M %p")
         full_prompt = (
-            f"Today is {now}. "
+            f"Today’s date is {today_str} and current time is {time_str} IST."
             f"You are an AI assistant that responds naturally to the user. "
             f"User query: {prompt}"
         )
@@ -70,9 +78,16 @@ Now extract from this message:
 """
 
     try:
+        now = get_ist_time()
+        today_str = now.strftime("%B %d, %Y")
+        time_str = now.strftime("%I:%M %p")
+        full_prompt = (
+            f"Today’s date is {today_str} and current time is {time_str} IST."
+            f"{prompt}"
+        )
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=prompt
+            contents=full_prompt
         )
         text = response.text.strip()
 
