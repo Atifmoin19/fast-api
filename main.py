@@ -79,6 +79,7 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================================================
 telegram_app: Application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 telegram_app.add_handler(CommandHandler("start", start))
+
 telegram_app.add_handler(CommandHandler("schedule", schedule_meeting))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
