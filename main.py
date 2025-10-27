@@ -169,7 +169,10 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Create Google Calendar event
-    event = create_event(title, start_time)
+    date_str = start_time.date().isoformat()
+    time_str = start_time.time().strftime("%H:%M")
+    event = create_event(title, date_str, time_str)
+    
     event_link = event.get("htmlLink", "No link available")
 
     msg = await update.message.reply_text(
