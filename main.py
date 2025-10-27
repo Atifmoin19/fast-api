@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 import uvicorn
 
-from google_calendar import create_event
+from google_calendar import create_event, ensure_google_files_exist
 import models, database, schemas
 from telegram import Update
 from telegram.ext import (
@@ -27,6 +27,8 @@ from dotenv import load_dotenv
 load_dotenv()
 models.Base.metadata.create_all(bind=database.engine)
 app = FastAPI(title="BooksNameFAPI")
+
+ensure_google_files_exist()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or "8468933584:AAG1XFuEF3qTq7_wYnppnP5ETHAN_bB5wRY"
 
