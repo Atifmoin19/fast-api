@@ -69,10 +69,7 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         summary = " ".join(context.args) or "Team Meeting"
         start_time = datetime.now() + timedelta(minutes=2)
         event = create_event(summary, start_time)
-        await update.message.reply_text(
-            f"✅ Your meeting '{event['summary']}' has been scheduled at "
-            f"{start_time.strftime('%I:%M %p')}."
-        )
+        await update.message.reply_text(f"✅ Your meeting '{summary}' has been scheduled.\n📅 {event.get('htmlLink')}")
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to schedule meeting: {e}")
 
