@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 import os
 from typing import Optional
 import httpx
@@ -7,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 import uvicorn
 
+from google_calendar import create_event
 import models, database, schemas
 from telegram import Update
 from telegram.ext import (
@@ -58,13 +60,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"You said: {update.message.text}")
 
+async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Create a Google Calendar event via Telegram command."""
+    try:
+        # Example usage: /schedule Team Meeting in 10 minutes
+        summary = " ".join(context.args) or "Team Meeting"
+        start_time = datetime.now() + timedelta(minutes=2)
+        event = create_event(summary, start_time)
+        await update.message.reply_text(
+            f"✅ Your meeting '{event['summary']}' has been scheduled at "
+            f"{start_time.strftime('%I:%M %p')}."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to schedule meeting: {e}")
 
 # =====================================================
 # TELEGRAM INITIALIZATION
 # =====================================================
 telegram_app: Application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CommandHandler("schedule", schedule_meeting))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
 
 
 @app.on_event("startup")
@@ -244,3 +261,4 @@ def delete_all_users(db: Session = Depends(get_db)):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
+
