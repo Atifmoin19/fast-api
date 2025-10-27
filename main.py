@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 import uvicorn
 
+from gemini_helper import parse_meeting_message
 from google_calendar import create_event, ensure_google_files_exist
 import models, database, schemas
 from telegram import Update
@@ -63,15 +64,25 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"You said: {update.message.text}")
 
 async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Create a Google Calendar event via Telegram command."""
-    try:
-        # Example usage: /schedule Team Meeting in 10 minutes
-        summary = " ".join(context.args) or "Team Meeting"
-        start_time = datetime.now() + timedelta(minutes=2)
-        event = create_event(summary, start_time)
-        await update.message.reply_text(f"✅ Your meeting '{summary}' has been scheduled.\n📅 {event.get('htmlLink')}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Failed to schedule meeting: {e}")
+
+    user_input = " ".join(context.args)
+    if not user_input:
+        await update.message.reply_text("Please describe your meeting (e.g. `/schedule a meeting tomorrow at 10 am about project updates`).")
+        return
+
+    parsed = parse_meeting_message(user_input)
+
+    title = parsed.get("title") or "Untitled Meeting"
+    date = parsed.get("date")
+    time = parsed.get("time")
+
+    if not date or not time:
+        await update.message.reply_text("I couldn’t find a clear date or time. Could you specify them?")
+        return
+
+    # Create Google Calendar event
+    event_link = create_event(title, date, time)
+    await update.message.reply_text(f"✅ Meeting scheduled:\n🗓 {title}\n📅 {date} at {time}\n🔗 {event_link}")
 
 # =====================================================
 # TELEGRAM INITIALIZATION
