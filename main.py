@@ -8,9 +8,6 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 import uvicorn
 from gemini_chat import get_gemini_reply, parse_meeting_message
-
-
-from gemini_chat import get_gemini_reply
 from google_calendar import create_event, ensure_google_files_exist
 import models, database, schemas
 from telegram import Update
@@ -23,6 +20,7 @@ from telegram.ext import (
     filters,
 )
 from dotenv import load_dotenv
+from io import BytesIO
 
 # =====================================================
 # ENVIRONMENT & DATABASE
@@ -33,11 +31,9 @@ app = FastAPI(title="BooksNameFAPI")
 
 ensure_google_files_exist()
 
-
-print("🔍 GEMINI_API_KEY available?",os.getenv("GEMINI_API_KEY"), bool(os.getenv("GEMINI_API_KEY")))
+print("🔍 GEMINI_API_KEY available?", os.getenv("GEMINI_API_KEY"), bool(os.getenv("GEMINI_API_KEY")))
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or "8468933584:AAG1XFuEF3qTq7_wYnppnP5ETHAN_bB5wRY"
-
 if not TELEGRAM_TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN not found!")
 
@@ -59,26 +55,65 @@ def get_db():
         db.close()
 
 # =====================================================
+# SMART MESSAGE SENDER (prevents Telegram 400 errors)
+# =====================================================
+MAX_LENGTH = 4000
+
+async def send_smart_message(update: Update, text: str):
+    """
+    Send long messages safely without cutting context.
+    Splits by paragraph if needed, or sends as file if too long.
+    """
+    if len(text) <= MAX_LENGTH:
+        await update.message.reply_text(text)
+        return
+
+    # Split on paragraphs to preserve readability
+    parts = []
+    current = ""
+    for line in text.splitlines(keepends=True):
+        if len(current) + len(line) > MAX_LENGTH:
+            parts.append(current)
+            current = line
+        else:
+            current += line
+    if current:
+        parts.append(current)
+
+    # If too many chunks — send as file
+    if len(parts) > 3:
+        preview = text[:1000] + "\n\n(Full response attached 👇)"
+        await update.message.reply_text(preview)
+        bio = BytesIO()
+        bio.write(text.encode())
+        bio.seek(0)
+        await update.message.reply_document(document=bio, filename="gemini_output.txt")
+        return
+
+    # Send each part sequentially
+    for part in parts:
+        await update.message.reply_text(part.strip())
+
+# =====================================================
 # TELEGRAM HANDLERS
 # =====================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Hello! Your FastAPI Telegram bot is live.")
 
-
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     reply = get_gemini_reply(user_text)
-    await update.message.reply_text(reply)
+    await send_smart_message(update, reply)
 
 async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     user_input = " ".join(context.args)
     if not user_input:
-        await update.message.reply_text("Please describe your meeting (e.g. `/schedule a meeting tomorrow at 10 am about project updates`).")
+        await update.message.reply_text(
+            "Please describe your meeting (e.g. `/schedule a meeting tomorrow at 10 am about project updates`)."
+        )
         return
 
     parsed = parse_meeting_message(user_input)
-
     title = parsed.get("title") or "Untitled Meeting"
     date = parsed.get("date")
     time = parsed.get("time")
@@ -96,48 +131,37 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================================================
 telegram_app: Application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 telegram_app.add_handler(CommandHandler("start", start))
-
 telegram_app.add_handler(CommandHandler("schedule", schedule_meeting))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
-
-
+# =====================================================
+# FASTAPI STARTUP / SHUTDOWN
+# =====================================================
 @app.on_event("startup")
 async def on_startup():
     print("🚀 Starting FastAPI app...")
 
     async with httpx.AsyncClient() as client:
-        # Always delete existing webhook to avoid conflicts
         await client.post(f"{BOT_URL}/deleteWebhook")
 
     if "RENDER" in os.environ:
         print("🌐 Running on Render — using Webhook mode")
-
-        # Initialize and start Telegram bot
         await telegram_app.initialize()
         await telegram_app.start()
-
-        # Set webhook
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{BOT_URL}/setWebhook", json={"url": WEBHOOK_URL}
-            )
+            response = await client.post(f"{BOT_URL}/setWebhook", json={"url": WEBHOOK_URL})
             print("📡 Webhook set:", response.json())
-
     else:
         print("💬 Running locally — using Polling mode")
-
         await telegram_app.initialize()
         await telegram_app.start()
         asyncio.create_task(telegram_app.run_polling(stop_signals=None))
-
 
 @app.on_event("shutdown")
 async def on_shutdown():
     print("🛑 Shutting down bot...")
     await telegram_app.stop()
     await telegram_app.shutdown()
-
 
 # =====================================================
 # TELEGRAM WEBHOOK ENDPOINT
@@ -146,15 +170,11 @@ async def on_shutdown():
 async def telegram_webhook(request: Request):
     data = await request.json()
     update = Update.de_json(data, telegram_app.bot)
-
-    # Ensure the application is initialized
     if not telegram_app.running:
         await telegram_app.initialize()
         await telegram_app.start()
-
     await telegram_app.process_update(update)
     return {"ok": True}
-
 
 # =====================================================
 # SEND MESSAGE ENDPOINT
@@ -162,11 +182,8 @@ async def telegram_webhook(request: Request):
 @app.post("/send_message/")
 async def send_message(chat_id: int, text: str):
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{BOT_URL}/sendMessage", json={"chat_id": chat_id, "text": text}
-        )
+        response = await client.post(f"{BOT_URL}/sendMessage", json={"chat_id": chat_id, "text": text})
     return response.json()
-
 
 # =====================================================
 # BOOKS CRUD
@@ -202,7 +219,6 @@ def create_book(book: schemas.BookCreate, db: Session = Depends(get_db)):
         genre=new_book.genre,
     )
 
-
 @app.get("/books/", response_model=list[schemas.BookResponse])
 def list_books(db: Session = Depends(get_db)):
     books = db.query(models.Book).all()
@@ -219,7 +235,6 @@ def list_books(db: Session = Depends(get_db)):
         for b in books
     ]
 
-
 @app.delete("/delete-all")
 def delete_all_books(db: Session = Depends(get_db)):
     db.query(models.Book).delete()
@@ -227,7 +242,6 @@ def delete_all_books(db: Session = Depends(get_db)):
     db.execute(text(f"ALTER SEQUENCE {seq_name} RESTART WITH 1"))
     db.commit()
     return {"message": "Deleted all records"}
-
 
 # =====================================================
 # USERS CRUD
@@ -242,22 +256,16 @@ def get_user_list(db: Session = Depends(get_db)):
         for a in userlist
     ]
 
-
 @app.post("/create-user")
 def create_user(user: schemas.AddUserRequest, db: Session = Depends(get_db)):
-    existing_user = (
-        db.query(models.UserList).filter(models.UserList.user_id == user.user_id).first()
-    )
+    existing_user = db.query(models.UserList).filter(models.UserList.user_id == user.user_id).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="User already exists.")
-    new_user = models.UserList(
-        username=user.username, user_id=user.user_id, user_role=user.user_role
-    )
+    new_user = models.UserList(username=user.username, user_id=user.user_id, user_role=user.user_role)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     return {"data": new_user, "message": "User created successfully"}
-
 
 @app.delete("/delete-all-user")
 def delete_all_users(db: Session = Depends(get_db)):
@@ -272,11 +280,9 @@ def delete_all_users(db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"Deleted all users ({deleted_count} records)."}
 
-
 # =====================================================
 # MAIN ENTRY
 # =====================================================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
-
