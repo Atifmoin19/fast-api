@@ -101,49 +101,68 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Hello! Your FastAPI Telegram bot is live.")
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Smart handler for normal messages and contextual replies."""
+    """
+    Handles both normal messages and replies.
+    If the user replies to a bot message, it keeps context (chat continuation or meeting intent).
+    """
     user_text = update.message.text
     reply_to_msg = update.message.reply_to_message
-    last_meeting = context.user_data.get("last_meeting")
-    print(update.message,'update.messageupdate.messageupdate.messageupdate.message')
+    reply = None
 
-    # --- Case 1: Replying to last meeting message ---
-    if reply_to_msg and last_meeting and reply_to_msg.message_id == last_meeting["message_id"]:
-        user_text_lower = user_text.lower()
+    # 🧩 Case 1: User replied to a bot message
+    if reply_to_msg and reply_to_msg.from_user and reply_to_msg.from_user.is_bot:
+        prev_text = reply_to_msg.text or ""
+        prev_text_lower = prev_text.lower()
 
-        if "cancel" in user_text_lower or "delete" in user_text_lower:
-            try:
-                from google_calendar import get_calendar_service
-                service = get_calendar_service()
-                service.events().delete(calendarId="primary", eventId=last_meeting["event_id"]).execute()
-                await update.message.reply_text(f"🗑️ Meeting '{last_meeting['title']}' cancelled successfully.")
-                context.user_data.pop("last_meeting", None)
-            except Exception as e:
-                await update.message.reply_text(f"⚠️ Could not cancel meeting: {e}")
-            return
-
-        elif "change" in user_text_lower or "reschedule" in user_text_lower:
-            reply = "🔁 I can reschedule meetings soon — for now, please delete and recreate it."
-            await update.message.reply_text(reply)
-            return
-
-        else:
-            # Contextual AI response
+        # Detect meeting-related context
+        if any(keyword in prev_text_lower for keyword in ["meeting scheduled", "calendar", "🗓", "📅"]):
             prompt = f"""
-The user replied to a meeting confirmation message.
+You are a smart meeting assistant.
+The user replied to a message about a scheduled meeting.
 
-Original meeting: "{last_meeting['title']}"
-User said: "{user_text}"
+Previous bot message:
+"{prev_text}"
 
-Respond helpfully and concisely, keeping context about meetings.
+User's reply:
+"{user_text}"
+
+Understand if the user wants to cancel, reschedule, or clarify meeting details.
+If yes, respond appropriately (e.g., confirm cancellation or reschedule suggestion).
+If not, respond briefly and politely.
 """
-            reply = get_gemini_reply(prompt)
-            await send_smart_message(update, reply)
-            return
+        else:
+            # Regular chat continuation
+            prompt = f"""
+Continue this conversation naturally.
 
-    # --- Case 2: Normal message (no reply) ---
-    reply = get_gemini_reply(user_text)
+The bot previously said:
+"{prev_text}"
+
+User replied with:
+"{user_text}"
+
+Respond in a natural, conversational tone.
+"""
+        try:
+            reply = get_gemini_reply(prompt)
+        except Exception as e:
+            print("Gemini context error:", e)
+            reply = "⚠️ I couldn’t process your reply right now. Please try again."
+
+    # 💬 Case 2: New message (not a reply)
+    else:
+        try:
+            reply = get_gemini_reply(user_text)
+        except Exception as e:
+            print("Gemini chat error:", e)
+            reply = "⚠️ Something went wrong while generating a response."
+
+    # ✉️ Send message safely (handles Telegram 400 / long messages)
+    if not reply:
+        reply = "I’m not sure how to respond — could you clarify?"
     await send_smart_message(update, reply)
+
+
 async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /schedule command and create a Google Calendar event."""
     user_input = " ".join(context.args)
