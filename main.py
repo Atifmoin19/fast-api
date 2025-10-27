@@ -105,6 +105,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     reply_to_msg = update.message.reply_to_message
     last_meeting = context.user_data.get("last_meeting")
+    print(update.message,'update.messageupdate.messageupdate.messageupdate.message')
 
     # --- Case 1: Replying to last meeting message ---
     if reply_to_msg and last_meeting and reply_to_msg.message_id == last_meeting["message_id"]:
