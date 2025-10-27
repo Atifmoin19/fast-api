@@ -59,8 +59,11 @@ def parse_meeting_message(message: str) -> dict:
     """
 
     try:
-        model = genai.GenerativeModel("models/gemini-1.5-flash-latest")
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+        # response = model.generate_content(prompt)
         text = response.text.strip()
 
         match = re.search(r"\{.*\}", text, re.DOTALL)
