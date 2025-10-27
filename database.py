@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Database URL
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL") 
+print(SQLALCHEMY_DATABASE_URL,'======================>==================')
 
 # SQLAlchemy engine
 engine = create_engine(SQLALCHEMY_DATABASE_URL)

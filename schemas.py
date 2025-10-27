@@ -22,6 +22,8 @@ class BookCreate(BaseModel):
     author_name: str  # Name of the author
     published_year: int   # new field
     genre: str            # new field
+    class Config:
+        extra = "forbid"   # <--- 👈
 
 class BookResponse(BaseModel):
     id: int
@@ -30,5 +32,21 @@ class BookResponse(BaseModel):
     published_year: int
     genre: str
 
+    class Config:
+        from_attributes = True
+
+class AddUserRequest(BaseModel):
+    username:str
+    user_id:int
+    user_role:str
+    class Config:
+        extra = "forbid"   # <--- 👈
+
+
+class AddUserResponse(BaseModel):
+    id:int
+    username:str
+    user_id:int
+    user_role:str
     class Config:
         from_attributes = True
