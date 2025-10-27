@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import re
 import json
@@ -37,15 +38,15 @@ def get_gemini_reply(prompt: str) -> str:
 # =====================================================
 # STRUCTURED MEETING PARSER
 # =====================================================
+
+
 def parse_meeting_message(message: str) -> dict:
-    """
-    Uses Gemini to extract structured meeting info from natural language.
-    Returns dictionary → { "title": str, "date": str, "time": str }
-    """
+    today = datetime.now().strftime("%Y-%m-%d")
 
     prompt = f"""
-    You are a meeting parser bot. Extract the meeting details from the following message.
-    Always reply **only** in JSON.
+    You are a meeting parser bot. Today's date is {today}.
+    Extract meeting details (title, date, and time) from the following message.
+    Always reply **only** in JSON format.
 
     Examples:
     - Input: "Schedule a meeting about project updates tomorrow at 10am"
@@ -54,18 +55,14 @@ def parse_meeting_message(message: str) -> dict:
     - Input: "Book a call on December 10 at 3 pm about UI review"
       Output: {{"title": "UI Review", "date": "2025-12-10", "time": "15:00"}}
 
-    Now extract the meeting details for this input:
-    "{message}"
+    Message: "{message}"
     """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
-        )
+        model = genai.GenerativeModel("models/gemini-1.5-flash-latest")
+        response = model.generate_content(prompt)
         text = response.text.strip()
 
-        # Try to find JSON in Gemini’s reply
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             parsed = json.loads(match.group(0))
