@@ -85,7 +85,7 @@ def create_event(title: str, date: str, time: str):
     }
 
     event_result = service.events().insert(calendarId="primary", body=event).execute()
-    return event_result.get("htmlLink", "No link returned")
+    return event_result 
 
 # =====================================================
 # LOCAL TEST
