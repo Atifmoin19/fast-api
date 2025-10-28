@@ -8,6 +8,9 @@ from telegram_bot.setup import setup_telegram_bot
 from gemini_chat import setup_gemini
 from google_calendar import get_calendar_service
 
+# ============================================================
+# ENVIRONMENT SETUP
+# ============================================================
 load_dotenv()
 
 # ============================================================
@@ -37,6 +40,7 @@ async def startup_event():
 
     # 1️⃣ Setup Gemini API
     setup_gemini()
+    print("✅ Gemini API initialized successfully!")
 
     # 2️⃣ Verify Google Calendar
     try:
@@ -58,29 +62,25 @@ async def startup_event():
         if not render_url:
             raise RuntimeError("❌ Missing RENDER_EXTERNAL_URL in environment variables.")
 
-        webhook_url = f"https://{render_url}/webhook"
+        # ✅ Render already gives full https:// URL
+        full_webhook_url = f"{render_url.rstrip('/')}/webhook"
 
         try:
-            # Initialize + start bot before processing updates
             await telegram_app.initialize()
             await telegram_app.start()
-
             await telegram_app.bot.delete_webhook(drop_pending_updates=True)
 
-            # ⏳ Wait briefly — ensures Render SSL certificate is live
-            import asyncio
+            # Wait briefly for Render SSL to be ready
             await asyncio.sleep(5)
 
-            # ✅ Set webhook
-            success = await telegram_app.bot.set_webhook(webhook_url)
-            if success:
-                print(f"✅ Webhook set successfully to: {webhook_url}")
+            ok = await telegram_app.bot.set_webhook(full_webhook_url)
+            if ok:
+                print(f"✅ Webhook set successfully: {full_webhook_url}")
             else:
-                print("⚠️ Telegram did not confirm webhook set.")
+                print(f"❌ Webhook setup failed for: {full_webhook_url}")
 
-            # 🔍 Optional: Check webhook info
             info = await telegram_app.bot.get_webhook_info()
-            print("ℹ️ Webhook info:", info.to_dict())
+            print("ℹ️ Telegram webhook info:", info.to_dict())
 
         except Exception as e:
             print("⚠️ Failed to set webhook:", e)
@@ -107,10 +107,22 @@ async def startup_event():
 async def telegram_webhook(request: Request):
     if not telegram_app:
         return {"ok": False, "error": "Telegram not initialized"}
+
     data = await request.json()
     update = Update.de_json(data, telegram_app.bot)
     await telegram_app.process_update(update)
     return {"ok": True}
+
+
+# ============================================================
+# DEBUG ENDPOINT FOR WEBHOOK STATUS
+# ============================================================
+@app.get("/debug/webhook")
+async def debug_webhook():
+    if not telegram_app:
+        return {"ok": False, "error": "Telegram app not initialized"}
+    info = await telegram_app.bot.get_webhook_info()
+    return info.to_dict()
 
 
 # ============================================================
