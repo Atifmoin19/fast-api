@@ -202,10 +202,12 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🗓 Create Google Calendar event safely
     date_str = start_time.date().isoformat()
     time_str = start_time.time().strftime("%H:%M")
+
+    # ✅ Define event before try — prevents unbound error
     event = None
 
     try:
-        # If your create_event supports attendees, pass them
+        # If create_event supports attendees, use them
         if "attendees" in create_event.__code__.co_varnames:
             event = create_event(title, date_str, time_str, attendees=attendees)
         else:
@@ -213,6 +215,11 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print("Create event error:", e)
         await update.message.reply_text("⚠️ Failed to create the calendar event.")
+        return
+
+    # ✅ Handle empty or invalid event result
+    if not event:
+        await update.message.reply_text("⚠️ Event could not be created.")
         return
 
     # ✅ Handle both dict and string responses
@@ -224,10 +231,11 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif isinstance(event, str):
         event_link = event
 
-    # 📨 Build reply
+    # 📨 Build final reply
     attendees_text = f"👥 Participants: {', '.join(attendees)}\n" if attendees else ""
     msg = await update.message.reply_text(
-        f"✅ Meeting scheduled:\n🗓 {title}\n📅 {date} at {time}\n"
+        f"✅ Meeting scheduled:\n"
+        f"🗓 {title}\n📅 {date} at {time}\n"
         f"{attendees_text}🔗 {event_link}"
     )
 

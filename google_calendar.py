@@ -60,9 +60,9 @@ def get_calendar_service():
     return service
 
 # =====================================================
-# CREATE EVENT (3 args)
+# CREATE EVENT (3 args + attendees)
 # =====================================================
-def create_event(title: str, date: str, time: str,attendees: list[str] | None = None):
+def create_event(title: str, date: str, time: str, attendees: list[str] | None = None):
     """
     Create a Google Calendar event with optional attendees.
     - title: Event title
@@ -73,23 +73,32 @@ def create_event(title: str, date: str, time: str,attendees: list[str] | None = 
     service = get_calendar_service()
 
     try:
-        # Convert "2025-10-28" + "10:00" → datetime
         start_dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
     except ValueError:
-        # Fallback in case time format differs
         raise ValueError(f"Invalid date/time format: {date} {time}")
 
     end_dt = start_dt + timedelta(hours=1)
-    if attendees:
-        event["attendees"] = [{"email": email} for email in attendees]
+
+    # Base event data
     event = {
         "summary": title,
         "start": {"dateTime": start_dt.isoformat(), "timeZone": "Asia/Kolkata"},
         "end": {"dateTime": end_dt.isoformat(), "timeZone": "Asia/Kolkata"},
     }
 
-    event_result = service.events().insert(calendarId="primary", body=event,sendUpdates="all").execute()
-    return event_result 
+    # Add participants if any
+    if attendees:
+        event["attendees"] = [{"email": email} for email in attendees]
+
+    # Create event in Google Calendar
+    event_result = (
+        service.events()
+        .insert(calendarId="primary", body=event, sendUpdates="all")
+        .execute()
+    )
+
+    print("✅ Event created:", event_result.get("htmlLink"))
+    return event_result
 
 # =====================================================
 # LOCAL TEST
@@ -99,5 +108,5 @@ if __name__ == "__main__":
     service = get_calendar_service()
     print("✅ Authenticated successfully!")
 
-    event_link = create_event("Test Meeting", "2025-10-28", "15:00")
-    print(f"🎉 Created event: {event_link}")
+    event = create_event("Test Meeting", "2025-10-28", "15:00", ["someone@example.com"])
+    print(f"🎉 Created event: {event.get('htmlLink')}")
