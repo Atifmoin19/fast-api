@@ -49,29 +49,29 @@ async def startup_event():
     telegram_app = setup_telegram_bot(app)
     print("✅ Telegram bot initialized successfully.")
 
+    # ===========================
+    # Webhook (Render)
+    # ===========================
     if os.getenv("RENDER"):
-        # 🚀 On Render → use webhook
-        webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL')}/webhook"
+        render_url = os.getenv("RENDER_EXTERNAL_URL")
+        if not render_url.startswith("https://"):
+            render_url = f"https://{render_url}"
+
+        webhook_url = f"{render_url}/webhook"
         await telegram_app.bot.set_webhook(webhook_url)
         print(f"✅ Webhook set to: {webhook_url}")
     else:
-        # 💻 Local → use async polling instead of blocking
+        # ===========================
+        # Local Polling
+        # ===========================
         await telegram_app.bot.delete_webhook(drop_pending_updates=True)
         print("💻 Webhook cleared, starting async polling...")
 
-        import asyncio
-
-        # 🧠 use the async polling version (does not block FastAPI)
         async def run_polling():
-            await telegram_app.initialize()
-            await telegram_app.start()
-            print("🤖 Telegram polling started!")
-            await telegram_app.updater.start_polling()
-            await telegram_app.updater.idle()
+            print("🤖 Telegram polling started (local mode)!")
+            await telegram_app.run_polling(stop_signals=None)
 
         asyncio.create_task(run_polling())
-
-
 
 # ============================================================
 # TELEGRAM WEBHOOK ENDPOINT (Render only)
