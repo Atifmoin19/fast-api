@@ -17,9 +17,10 @@ load_dotenv()
 # =====================================================
 # TELEGRAM BOT INITIALIZATION
 # =====================================================
-def setup_telegram_bot(app):
+def setup_telegram_bot(app=None):
     """
-    Initializes Telegram bot and runs polling safely in the background.
+    Initializes Telegram bot and returns the Application instance.
+    Polling or webhook handling is managed externally in main.py.
     """
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
@@ -28,25 +29,13 @@ def setup_telegram_bot(app):
     # Create bot application
     application = ApplicationBuilder().token(token).build()
 
-    # ===============================
     # Register Command Handlers
-    # ===============================
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("schedule", schedule_meeting))
     application.add_handler(CommandHandler("chat", echo))
 
-    # ===============================
     # Natural Chat Handler
-    # ===============================
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
-    # ===============================
-    # Run bot in background thread
-    # ===============================
-    def run_bot():
-        print("🤖 Telegram bot polling started successfully!")
-        # Disable signal handling to avoid "set_wakeup_fd" error
-        application.run_polling(stop_signals=None)
-
-    thread = threading.Thread(target=run_bot, daemon=True)
-    thread.start()
+    print("✅ Telegram bot initialized successfully.")
+    return application  # 👈 no polling here
