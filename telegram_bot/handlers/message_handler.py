@@ -9,6 +9,11 @@ from google_calendar import (
 )
 
 # =====================================================
+# Memory for tracking last created event per user
+# =====================================================
+user_last_event = {}
+
+# =====================================================
 # /start command handler
 # =====================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -35,7 +40,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         replied_id = update.message.reply_to_message.message_id
         event_mapping = context.bot_data.get("event_map", {})
-        event_id = event_mapping.get(replied_id)
+        event_id = event_mapping.get(replied_id) or user_last_event.get(update.effective_user.id)
 
         if event_id:
             text_lower = user_message.lower()
@@ -64,7 +69,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 return
 
-            # --- Change date ---
+            # --- Change date or reschedule ---
             if "change date" in text_lower or "reschedule" in text_lower:
                 from gemini_chat import parse_meeting_message
 
@@ -120,8 +125,11 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 attendees=details.get("attendees"),
             )
             if created:
+                # ✅ Store last event for this user
+                user_last_event[update.effective_user.id] = created.get("id")
+
                 msg = (
-                    f"✅ *Meeting Scheduled!*\n\n"
+                    f"✅ *Meeting is Scheduled!*\n\n"
                     f"🗓 *{details['title']}*\n"
                     f"📅 {details['date']} at {details['time']}\n"
                 )
@@ -134,10 +142,14 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "• Reschedule meeting to _3pm tomorrow_\n"
                     "• Move meeting to _Friday_\n"
                     "• Cancel this meeting\n"
-                    "• Add attendee _abc@gmail.com_\n"
+                    "• Add attendee _abc@gmail.com_\n\n"
+                    "_(These actions apply to your most recently scheduled meeting.)_"
                 )
 
-                await update.message.reply_text(msg, parse_mode="Markdown")
+                sent_message = await update.message.reply_text(msg, parse_mode="Markdown")
+
+                # 🧠 Map Telegram message to event
+                context.bot_data.setdefault("event_map", {})[sent_message.message_id] = created.get("id")
             else:
                 await update.message.reply_text("❌ Failed to schedule the meeting.")
             return
@@ -151,14 +163,15 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("⚠️ Please tell me the new title.")
                 return
 
-            updated = update_event_title(None, new_title)
+            event_id = user_last_event.get(update.effective_user.id)
+            updated = update_event_title(event_id, new_title)
             if updated:
                 await update.message.reply_text(
                     f"✅ Meeting title changed to *{new_title}*!",
                     parse_mode="Markdown",
                 )
             else:
-                await update.message.reply_text("⚠️ No upcoming meeting found.")
+                await update.message.reply_text("⚠️ No recent meeting found to update.")
             return
 
         # ----------------------------
@@ -170,7 +183,8 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("⚠️ Please tell me the new time (e.g., 10:00).")
                 return
 
-            updated = update_event_time(None, new_time)
+            event_id = user_last_event.get(update.effective_user.id)
+            updated = update_event_time(event_id, new_time)
             if updated:
                 await update.message.reply_text(
                     f"✅ Meeting time updated to *{new_time}*!",
@@ -179,7 +193,6 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("⚠️ Couldn't find a meeting to update.")
             return
-
 
         # ----------------------------
         # CASE 4: Update date (no reply)
@@ -190,7 +203,8 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("⚠️ Please specify the new date (YYYY-MM-DD).")
                 return
 
-            updated = update_event_date(None, new_date)
+            event_id = user_last_event.get(update.effective_user.id)
+            updated = update_event_date(event_id, new_date)
             if updated:
                 await update.message.reply_text(
                     f"✅ Meeting moved to *{new_date}*!",
