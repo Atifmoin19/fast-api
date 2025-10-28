@@ -5,13 +5,10 @@ from telegram.ext import ContextTypes
 from gemini_chat import parse_meeting_message
 from google_calendar import create_event
 
-# === Global mapping (you can later move to DB for persistence)
-message_event_map = {}  # message_id -> event_id
+# Note: we use context.application.bot_data["event_map"] (shared across handlers)
+# to store message_id -> event_id mapping for future replies/updates.
 
 
-# =====================================================
-# HANDLER: /schedule
-# =====================================================
 async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = " ".join(context.args)
     if not user_input:
@@ -37,23 +34,19 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Invalid date/time format.")
         return
 
-    # If parse_meeting_message adjusted past time
+    # If parse bumped a past meeting to next day, ask user to confirm
     if past:
         await update.message.reply_text(
-            f"⚠️ The time you mentioned seems to be in the past, "
-            f"so I’ve adjusted it to the next available slot.\n"
-            f"Would you like to proceed with scheduling **{title}** "
-            f"on {date} at {time}? (yes/no)"
+            f"⚠️ The time you mentioned seems to be in the past, so I’ve adjusted it to the next available slot.\n"
+            f"Would you like to proceed with scheduling *{title}* on {date} at {time}? (yes/no)",
+            parse_mode="Markdown",
         )
         context.user_data["pending_meeting"] = {
-            "title": title,
-            "date": date,
-            "time": time,
-            "attendees": attendees,
+            "title": title, "date": date, "time": time, "attendees": attendees
         }
         return
 
-    # Ensure not scheduling in past
+    # Ensure not scheduling in past (double-check)
     now = datetime.now()
     if start_time < now:
         await update.message.reply_text("⏰ You can’t schedule meetings in the past! Please choose a future time.")
@@ -61,18 +54,18 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Create Google Calendar event
     try:
-        event = create_event(title, date, time, attendees=attendees)
+        created = create_event(title, date, time, attendees=attendees)
     except Exception as e:
         print("Create event error:", e)
         await update.message.reply_text("⚠️ Failed to create the calendar event.")
         return
 
-    if not event:
+    if not created:
         await update.message.reply_text("⚠️ Event could not be created.")
         return
 
-    event_link = event.get("htmlLink", "No link available")
-    event_id = event.get("id")
+    event_link = created.get("htmlLink", "No link available")
+    event_id = created.get("id")
 
     attendees_text = f"👥 Participants: {', '.join(attendees)}\n" if attendees else ""
     msg = await update.message.reply_text(
@@ -82,9 +75,10 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # === Store mapping for future replies
-    message_event_map[msg.message_id] = event_id
+    event_map = context.application.bot_data.setdefault("event_map", {})
+    event_map[msg.message_id] = event_id
 
-    # Store last meeting data (optional)
+    # Store last meeting (optional, per-user)
     context.user_data["last_meeting"] = {
         "event_id": event_id,
         "message_id": msg.message_id,
