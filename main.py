@@ -24,11 +24,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============================================================
-# CONDITIONAL TELEGRAM SETUP
-# ============================================================
 telegram_app = None  # Will hold the ApplicationBuilder instance
 
+# ============================================================
+# STARTUP EVENT
+# ============================================================
 @app.on_event("startup")
 async def startup_event():
     """Initialize all connected services on startup."""
@@ -49,29 +49,42 @@ async def startup_event():
     telegram_app = setup_telegram_bot(app)
     print("✅ Telegram bot initialized successfully.")
 
-    # ===========================
-    # Webhook (Render)
-    # ===========================
-    if os.getenv("RENDER"):
+    # ============================================================
+    #  MODE SELECTION: WEBHOOK (Render) OR POLLING (Local)
+    # ============================================================
+    if os.getenv("RENDER", "").lower() == "true":
+        # 🚀 Webhook mode for Render
         render_url = os.getenv("RENDER_EXTERNAL_URL")
-        if not render_url.startswith("https://"):
-            render_url = f"https://{render_url}"
+        if not render_url:
+            raise RuntimeError("❌ Missing RENDER_EXTERNAL_URL in environment variables.")
 
-        webhook_url = f"{render_url}/webhook"
-        await telegram_app.bot.set_webhook(webhook_url)
-        print(f"✅ Webhook set to: {webhook_url}")
+        webhook_url = f"https://{render_url}/webhook"
+
+        try:
+            # Initialize + start bot before processing updates
+            await telegram_app.initialize()
+            await telegram_app.start()
+
+            await telegram_app.bot.delete_webhook(drop_pending_updates=True)
+            await telegram_app.bot.set_webhook(webhook_url)
+            print(f"✅ Webhook set successfully to: {webhook_url}")
+        except Exception as e:
+            print("⚠️ Failed to set webhook:", e)
+
     else:
-        # ===========================
-        # Local Polling
-        # ===========================
+        # 💻 Local mode — Polling
+        print("💻 Running locally — starting async polling...")
         await telegram_app.bot.delete_webhook(drop_pending_updates=True)
-        print("💻 Webhook cleared, starting async polling...")
 
         async def run_polling():
-            print("🤖 Telegram polling started (local mode)!")
-            await telegram_app.run_polling(stop_signals=None)
+            await telegram_app.initialize()
+            await telegram_app.start()
+            print("🤖 Telegram polling started!")
+            await telegram_app.updater.start_polling()
+            await telegram_app.updater.idle()
 
         asyncio.create_task(run_polling())
+
 
 # ============================================================
 # TELEGRAM WEBHOOK ENDPOINT (Render only)
@@ -97,7 +110,7 @@ def root():
         "telegram": bool(telegram_app),
         "calendar": True,
         "gemini": True,
-        "mode": "webhook" if os.getenv("RENDER") else "polling",
+        "mode": "webhook" if os.getenv("RENDER", "").lower() == "true" else "polling",
     }
 
 
