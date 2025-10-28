@@ -180,6 +180,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("⚠️ Couldn't find a meeting to update.")
             return
 
+
         # ----------------------------
         # CASE 4: Update date (no reply)
         # ----------------------------
