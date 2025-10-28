@@ -178,7 +178,7 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time = parsed.get("time")
 
     if not date or not time:
-        await update.message.reply_text("I couldn’t find a clear date or time. Could you specify them?")
+        await update.message.reply_text("⚠️ I couldn’t find a clear date or time. Could you specify them?")
         return
 
     # Convert parsed date/time to datetime
@@ -188,24 +188,54 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Invalid date/time format.")
         return
 
-    # Create Google Calendar event
+    # 🚫 Reject meetings in the past
+    now = datetime.now()
+    if start_time < now:
+        await update.message.reply_text("⏰ You can’t schedule meetings in the past! Please choose a future time.")
+        return
+
+    # ✉️ Extract participant emails (e.g. "with atif@gmail.com and moon@gmail.com")
+    email_pattern = r"[\w\.-]+@[\w\.-]+\.\w+"
+    attendees = re.findall(email_pattern, user_input)
+
+    # 🗓 Create Google Calendar event
     date_str = start_time.date().isoformat()
     time_str = start_time.time().strftime("%H:%M")
-    event = create_event(title, date_str, time_str)
-    
-    event_link = event.get("htmlLink", "No link available")
+
+    try:
+        # Support for optional attendees (if your create_event supports it)
+        if "attendees" in create_event.__code__.co_varnames:
+            event = create_event(title, date_str, time_str, attendees=attendees)
+        else:
+            event = create_event(title, date_str, time_str)
+    except Exception as e:
+        print("Create event error:", e)
+        await update.message.reply_text("⚠️ Failed to create the calendar event.")
+        return
+
+    # Handle both dict and string returns gracefully
+    if isinstance(event, dict):
+        event_link = event.get("htmlLink", "No link available")
+        event_id = event.get("id")
+    else:
+        event_link = str(event)
+        event_id = None
 
     msg = await update.message.reply_text(
-        f"✅ Meeting scheduled:\n🗓 {title}\n📅 {date} at {time}\n🔗 {event_link}"
+        f"✅ Meeting scheduled:\n🗓 {title}\n📅 {date} at {time}\n"
+        f"{'👥 Participants: ' + ', '.join(attendees) if attendees else ''}\n"
+        f"🔗 {event_link}"
     )
 
-    # Store event metadata for contextual replies
+    # 🧠 Store metadata for contextual replies (e.g. “cancel this meeting”)
     context.user_data["last_meeting"] = {
-        "event_id": event.get("id"),
+        "event_id": event_id,
         "message_id": msg.message_id,
         "title": title,
+        "date": date,
+        "time": time,
+        "attendees": attendees,
     }
-
 # =====================================================
 # TELEGRAM INITIALIZATION
 # =====================================================

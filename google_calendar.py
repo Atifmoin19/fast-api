@@ -62,10 +62,13 @@ def get_calendar_service():
 # =====================================================
 # CREATE EVENT (3 args)
 # =====================================================
-def create_event(title: str, date: str, time: str):
+def create_event(title: str, date: str, time: str,attendees: list[str] | None = None):
     """
-    Create a Google Calendar event using separate date and time strings.
-    Returns the event link.
+    Create a Google Calendar event with optional attendees.
+    - title: Event title
+    - date: e.g. '2025-10-28'
+    - time: e.g. '14:30'
+    - attendees: Optional list of participant emails
     """
     service = get_calendar_service()
 
@@ -77,14 +80,15 @@ def create_event(title: str, date: str, time: str):
         raise ValueError(f"Invalid date/time format: {date} {time}")
 
     end_dt = start_dt + timedelta(hours=1)
-
+    if attendees:
+        event["attendees"] = [{"email": email} for email in attendees]
     event = {
         "summary": title,
         "start": {"dateTime": start_dt.isoformat(), "timeZone": "Asia/Kolkata"},
         "end": {"dateTime": end_dt.isoformat(), "timeZone": "Asia/Kolkata"},
     }
 
-    event_result = service.events().insert(calendarId="primary", body=event).execute()
+    event_result = service.events().insert(calendarId="primary", body=event,sendUpdates="all").execute()
     return event_result 
 
 # =====================================================
