@@ -18,8 +18,8 @@ load_dotenv()
 def setup_telegram_bot(app=None):
     """
     Initializes Telegram Application.
-    - returns application instance (for webhook use in main.py).
-    - if not in RENDER env, also starts polling in a background thread.
+    - Returns application instance (for webhook use in main.py).
+    - If not in RENDER env, also starts polling in a background thread.
     """
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
@@ -27,22 +27,20 @@ def setup_telegram_bot(app=None):
 
     application = ApplicationBuilder().token(token).build()
 
-    # Register command handlers
+    # === Register command handlers ===
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("schedule", schedule_meeting))
-    application.add_handler(CommandHandler("chat", echo))
 
-    # Natural chat messages
+    # === Natural chat / reply handler ===
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
-    # Initialize a shared mapping store for message->event
-    # Use application.bot_data for cross-handler shared storage
+    # Shared storage for event mapping
     application.bot_data.setdefault("event_map", {})
 
-    # If running locally (no RENDER env), start polling in background thread
+    # === Local polling mode (for dev) ===
     if not os.getenv("RENDER", "").lower() == "true":
         def run_bot():
-            # disable default signal handling in background thread
+            # Disable signal handling since it's in background thread
             application.run_polling(stop_signals=None)
 
         thread = threading.Thread(target=run_bot, daemon=True)
