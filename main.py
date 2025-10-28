@@ -66,8 +66,22 @@ async def startup_event():
             await telegram_app.start()
 
             await telegram_app.bot.delete_webhook(drop_pending_updates=True)
-            await telegram_app.bot.set_webhook(webhook_url)
-            print(f"✅ Webhook set successfully to: {webhook_url}")
+
+            # ⏳ Wait briefly — ensures Render SSL certificate is live
+            import asyncio
+            await asyncio.sleep(5)
+
+            # ✅ Set webhook
+            success = await telegram_app.bot.set_webhook(webhook_url)
+            if success:
+                print(f"✅ Webhook set successfully to: {webhook_url}")
+            else:
+                print("⚠️ Telegram did not confirm webhook set.")
+
+            # 🔍 Optional: Check webhook info
+            info = await telegram_app.bot.get_webhook_info()
+            print("ℹ️ Webhook info:", info.to_dict())
+
         except Exception as e:
             print("⚠️ Failed to set webhook:", e)
 
