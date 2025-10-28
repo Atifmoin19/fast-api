@@ -57,23 +57,30 @@ def get_gemini_reply(prompt: str) -> str:
 
 def parse_meeting_message(message: str) -> dict:
     """
-    Extract meeting details (title, date, time) from a natural sentence using Gemini.
+    Extract meeting details (title, date, time, attendees) from a natural sentence using Gemini.
     Disallows meetings scheduled in the past.
     """
-
     prompt = f"""
 You are a meeting extraction assistant.
-Extract the meeting title, date (YYYY-MM-DD), and time (24-hour format: HH:MM)
-from the user message.
+Extract the following fields from the user's message:
+- title: The meeting title
+- date: The meeting date in YYYY-MM-DD format
+- time: The meeting start time in 24-hour format HH:MM
+- attendees: A list of participant emails or names if possible
 
-If time or date are missing or ambiguous, leave them null.
+If any field is missing or unclear, set it to null.
+Always reply in valid JSON.
 
-Always reply in strict JSON only.
 Example:
-Input: "Book a syncup tomorrow at 10 am"
-Output: {{"title": "Syncup", "date": "2025-10-28", "time": "10:00"}}
+Input: "Schedule a sync with atif@gmail.com and moon tomorrow at 10 am"
+Output: {{
+  "title": "Sync",
+  "date": "2025-10-28",
+  "time": "10:00",
+  "attendees": ["atif@gmail.com", "moon"]
+}}
 
-Now extract from this message:
+Now extract details from this message:
 "{message}"
 """
 
@@ -82,9 +89,10 @@ Now extract from this message:
         today_str = now.strftime("%B %d, %Y")
         time_str = now.strftime("%I:%M %p")
         full_prompt = (
-            f"Today’s date is {today_str} and current time is {time_str} IST."
+            f"Today’s date is {today_str} and current time is {time_str} IST.\n"
             f"{prompt}"
         )
+
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=full_prompt
@@ -98,30 +106,30 @@ Now extract from this message:
         title = parsed.get("title", "Untitled Meeting")
         date_str = parsed.get("date")
         time_str = parsed.get("time")
+        attendees = parsed.get("attendees", [])
 
-        # 🕒 Validate and combine date/time
+        # 🕒 Validate and bump past meetings
         if date_str and time_str:
             try:
                 meeting_dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
                 now = datetime.now()
 
-                # 🚫 Disallow past meetings
                 if meeting_dt < now:
-                    # Auto-bump to next day, same time
-                    meeting_dt = meeting_dt + timedelta(days=1)
+                    meeting_dt += timedelta(days=1)
                     date_str = meeting_dt.strftime("%Y-%m-%d")
                     time_str = meeting_dt.strftime("%H:%M")
                     print("⚠️ Adjusted meeting to future date/time")
 
             except ValueError:
-                pass  # Invalid date/time format; handled below
+                pass
 
         return {
             "title": title,
             "date": date_str,
             "time": time_str,
+            "attendees": attendees,
         }
 
     except Exception as e:
         print("Gemini parse error:", e)
-        return {"title": "Untitled", "date": None, "time": None}
+        return {"title": "Untitled", "date": None, "time": None, "attendees": []}
