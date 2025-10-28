@@ -199,12 +199,13 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     email_pattern = r"[\w\.-]+@[\w\.-]+\.\w+"
     attendees = re.findall(email_pattern, user_input)
 
-    # 🗓 Create Google Calendar event
+    # 🗓 Create Google Calendar event safely
     date_str = start_time.date().isoformat()
     time_str = start_time.time().strftime("%H:%M")
+    event = None
 
     try:
-        # Support for optional attendees (if your create_event supports it)
+        # If your create_event supports attendees, pass them
         if "attendees" in create_event.__code__.co_varnames:
             event = create_event(title, date_str, time_str, attendees=attendees)
         else:
@@ -214,21 +215,23 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Failed to create the calendar event.")
         return
 
-    # Handle both dict and string returns gracefully
+    # ✅ Handle both dict and string responses
+    event_link = "No link available"
+    event_id = None
     if isinstance(event, dict):
         event_link = event.get("htmlLink", "No link available")
         event_id = event.get("id")
-    else:
-        event_link = str(event)
-        event_id = None
+    elif isinstance(event, str):
+        event_link = event
 
+    # 📨 Build reply
+    attendees_text = f"👥 Participants: {', '.join(attendees)}\n" if attendees else ""
     msg = await update.message.reply_text(
         f"✅ Meeting scheduled:\n🗓 {title}\n📅 {date} at {time}\n"
-        f"{'👥 Participants: ' + ', '.join(attendees) if attendees else ''}\n"
-        f"🔗 {event_link}"
+        f"{attendees_text}🔗 {event_link}"
     )
 
-    # 🧠 Store metadata for contextual replies (e.g. “cancel this meeting”)
+    # 🧠 Store meeting context for future replies
     context.user_data["last_meeting"] = {
         "event_id": event_id,
         "message_id": msg.message_id,
@@ -237,6 +240,9 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "time": time,
         "attendees": attendees,
     }
+
+
+
 # =====================================================
 # TELEGRAM INITIALIZATION
 # =====================================================
