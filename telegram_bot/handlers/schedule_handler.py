@@ -2,8 +2,11 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from gemini_chat import parse_meeting_message  # top-level import
-from google_calendar import create_event      # top-level import
+from gemini_chat import parse_meeting_message
+from google_calendar import create_event
+
+# === Global mapping (you can later move to DB for persistence)
+message_event_map = {}  # message_id -> event_id
 
 
 # =====================================================
@@ -56,8 +59,7 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏰ You can’t schedule meetings in the past! Please choose a future time.")
         return
 
-    # Create event
-    event = None
+    # Create Google Calendar event
     try:
         event = create_event(title, date, time, attendees=attendees)
     except Exception as e:
@@ -79,6 +81,10 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{attendees_text}🔗 {event_link}"
     )
 
+    # === Store mapping for future replies
+    message_event_map[msg.message_id] = event_id
+
+    # Store last meeting data (optional)
     context.user_data["last_meeting"] = {
         "event_id": event_id,
         "message_id": msg.message_id,
@@ -87,3 +93,5 @@ async def schedule_meeting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "time": time,
         "attendees": attendees,
     }
+
+    print(f"[DEBUG] Stored event mapping: message_id={msg.message_id} -> event_id={event_id}")
