@@ -119,22 +119,25 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 time=details["time"],
                 attendees=details.get("attendees"),
             )
-
             if created:
-                msg = await update.message.reply_text(
-                    f"✅ Meeting *{details['title']}* scheduled on {details['date']} at {details['time']}.\n"
-                    f"[View in Calendar]({created.get('htmlLink')})",
-                    parse_mode="Markdown",
+                msg = (
+                    f"✅ *Meeting Scheduled!*\n\n"
+                    f"🗓 *{details['title']}*\n"
+                    f"📅 {details['date']} at {details['time']}\n"
+                )
+                if details.get("attendees"):
+                    msg += f"👥 Attendees: {', '.join(details['attendees'])}\n"
+                msg += f"🔗 [View in Calendar]({created.get('htmlLink')})\n\n"
+                msg += (
+                    "✨ *You can also say:*\n"
+                    "• Change meeting title to _Daily Sync_\n"
+                    "• Reschedule meeting to _3pm tomorrow_\n"
+                    "• Move meeting to _Friday_\n"
+                    "• Cancel this meeting\n"
+                    "• Add attendee _abc@gmail.com_\n"
                 )
 
-                # 🔗 Store mapping for reply-based updates
-                context.bot_data.setdefault("event_map", {})[
-                    msg.message_id
-                ] = created.get("id")
-                print(
-                    f"[DEBUG] Stored event mapping: message_id={msg.message_id} -> event_id={created.get('id')}"
-                )
-
+                await update.message.reply_text(msg, parse_mode="Markdown")
             else:
                 await update.message.reply_text("❌ Failed to schedule the meeting.")
             return
