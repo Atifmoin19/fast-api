@@ -12,10 +12,13 @@ SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 IST = ZoneInfo("Asia/Kolkata")
 
 
+# ============================================================
+# 🔐 GOOGLE AUTH HANDLING
+# ============================================================
 def ensure_google_files_exist():
     """
-    If you store credentials/token base64 in env (for Render),
-    decode them and save as credentials.json / token.json.
+    Decode Google credentials/token from base64 env vars (for Render deployment)
+    and save locally as credentials.json / token.json if missing.
     """
     cred_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
     token_b64 = os.getenv("GOOGLE_TOKEN_B64")
@@ -31,8 +34,8 @@ def ensure_google_files_exist():
 
 def get_calendar_service():
     """
-    Returns an authenticated Google Calendar service.
-    Works both locally (interactive auth) and on Render (env-provided files).
+    Return an authenticated Google Calendar API client.
+    Works for both local (interactive) and Render-hosted environments.
     """
     ensure_google_files_exist()
 
@@ -48,7 +51,7 @@ def get_calendar_service():
         else:
             # Local interactive auth only
             if not os.path.exists("credentials.json"):
-                raise FileNotFoundError("credentials.json not found (for local auth).")
+                raise FileNotFoundError("credentials.json not found for local auth.")
             flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
             creds = flow.run_local_server(port=0)
             with open("token.json", "w") as token:
@@ -57,6 +60,9 @@ def get_calendar_service():
     return build("calendar", "v3", credentials=creds)
 
 
+# ============================================================
+# 📅 CREATE EVENT
+# ============================================================
 def create_event(title: str, date: str, time: str, attendees: list[str] | None = None):
     """
     Create a Google Calendar event with optional attendees.
@@ -91,12 +97,11 @@ def create_event(title: str, date: str, time: str, attendees: list[str] | None =
 
 
 # ============================================================
-# 🆕 UPDATE / MODIFY EXISTING MEETINGS
+# 🔍 FIND LATEST UPCOMING EVENT
 # ============================================================
-
 def find_latest_event(service):
     """
-    Helper: Find the most recently created/upcoming event on the primary calendar.
+    Return the most recent upcoming event (soonest future event).
     """
     now = datetime.now(IST).isoformat()
     events_result = (
@@ -114,13 +119,17 @@ def find_latest_event(service):
     return events[0] if events else None
 
 
+# ============================================================
+# ✏️ UPDATE EVENT TITLE
+# ============================================================
 def update_event_title(new_title: str):
     """
-    Update the most recent (upcoming) event's title.
+    Update the title of the most recent upcoming event.
     """
     service = get_calendar_service()
     event = find_latest_event(service)
     if not event:
+        print("⚠️ No upcoming events found.")
         return None
 
     event["summary"] = new_title
@@ -131,23 +140,106 @@ def update_event_title(new_title: str):
         sendUpdates="all",
     ).execute()
 
+    print(f"✅ Updated title to: {new_title}")
     return updated
 
 
 # ============================================================
-# LOCAL TEST
+# ⏰ UPDATE EVENT TIME
+# ============================================================
+def update_event_time(new_time: str):
+    """
+    Change only the time of the latest event, keeping the same date.
+    Expects 'new_time' in 'HH:MM' 24-hour format.
+    """
+    service = get_calendar_service()
+    event = find_latest_event(service)
+    if not event:
+        print("⚠️ No upcoming events found.")
+        return None
+
+    try:
+        # Extract current event date
+        current_start = datetime.fromisoformat(event["start"]["dateTime"]).astimezone(IST)
+        new_start = datetime.strptime(new_time, "%H:%M").replace(
+            year=current_start.year,
+            month=current_start.month,
+            day=current_start.day,
+            tzinfo=IST,
+        )
+    except ValueError:
+        print(f"❌ Invalid time format: {new_time}")
+        return None
+
+    new_end = new_start + timedelta(hours=1)
+    event["start"]["dateTime"] = new_start.isoformat()
+    event["end"]["dateTime"] = new_end.isoformat()
+
+    updated = service.events().update(
+        calendarId="primary",
+        eventId=event["id"],
+        body=event,
+        sendUpdates="all",
+    ).execute()
+
+    print(f"✅ Event time updated to: {new_time}")
+    return updated
+
+
+# ============================================================
+# 📆 UPDATE EVENT DATE
+# ============================================================
+def update_event_date(new_date: str):
+    """
+    Change the date of the latest event while preserving time.
+    Expects 'new_date' in 'YYYY-MM-DD' format.
+    """
+    service = get_calendar_service()
+    event = find_latest_event(service)
+    if not event:
+        print("⚠️ No upcoming events found.")
+        return None
+
+    try:
+        start = datetime.fromisoformat(event["start"]["dateTime"]).astimezone(IST)
+        new_date_obj = datetime.strptime(new_date, "%Y-%m-%d").date()
+        new_start = datetime.combine(new_date_obj, start.time(), tzinfo=IST)
+    except ValueError:
+        print(f"❌ Invalid date format: {new_date}")
+        return None
+
+    new_end = new_start + timedelta(hours=1)
+    event["start"]["dateTime"] = new_start.isoformat()
+    event["end"]["dateTime"] = new_end.isoformat()
+
+    updated = service.events().update(
+        calendarId="primary",
+        eventId=event["id"],
+        body=event,
+        sendUpdates="all",
+    ).execute()
+
+    print(f"✅ Event moved to new date: {new_date}")
+    return updated
+
+
+# ============================================================
+# 🧪 LOCAL TEST (for debugging)
 # ============================================================
 if __name__ == "__main__":
     print("Running google_calendar.py local test...")
     ensure_google_files_exist()
     svc = get_calendar_service()
 
-    # Uncomment below lines for quick checks
-    # ev = create_event("Local Test", datetime.now().strftime("%Y-%m-%d"), (datetime.now() + timedelta(minutes=5)).strftime("%H:%M"))
-    # print("Event created:", ev.get("htmlLink"))
+    # Example tests
+    # created = create_event("Demo Meeting", "2025-10-29", "10:00", ["test@gmail.com"])
+    # print("✅ Created:", created.get("htmlLink"))
 
     updated = update_event_title("Daily Syncup (Test)")
     if updated:
-        print("✅ Event updated:", updated.get("htmlLink"))
+        print("✅ Event title updated:", updated.get("htmlLink"))
     else:
         print("⚠️ No upcoming events found.")
+
+    # update_event_time("22:00")
+    # update_event_date("2025-10-30")
